@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/gh-workflow/multiarch-image-publish?style=flat-square)](https://github.com/gh-workflow/multiarch-image-publish/releases)
 [![Immutable Releases](https://img.shields.io/badge/releases-immutable-blue?labelColor=333)](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/immutable-releases)
-[![GitHub Marketplace](https://img.shields.io/badge/marketplace-publish--multiarch--image-blue?logo=github&labelColor=333&style=flat-square)](https://github.com/marketplace/actions/publish-multi-arch-image)
+[![GitHub Action](https://img.shields.io/badge/action-composite-blue?logo=githubactions&labelColor=333&style=flat-square)](https://github.com/gh-workflow/multiarch-image-publish)
 [![Tests](https://img.shields.io/github/actions/workflow/status/gh-workflow/multiarch-image-publish/change-validation.yml?branch=main&label=test&style=flat-square)](https://github.com/gh-workflow/multiarch-image-publish/actions/workflows/change-validation.yml)
 [![Multi-Arch](https://img.shields.io/badge/image-multiarch-2496ED?logo=docker&logoColor=white&style=flat-square)](#usage)
 [![Cosign](https://img.shields.io/badge/signing-cosign-3EAAAF?logo=sigstore&logoColor=white&style=flat-square)](#usage)
@@ -12,7 +12,7 @@ Publish a signed multi-arch container image from pre-built per-architecture imag
 Build and test each architecture in your workflow, then use this action to publish the final image.
 
 - multi-arch tags such as `v1.2.3` and `latest`
-- per-platform tags such as `v1.2.3-amd64`
+- optional per-platform tags such as `v1.2.3-amd64`
 - sign and verify the per-platform images and final multi-arch manifest
 - verify provenance on the per-platform images before publishing final tags
 
@@ -46,7 +46,7 @@ To now build your projects images, change this in the copied workflow:
 ```yaml
 - name: Publish MultiArch Image
   id: publish
-  uses: gh-workflow/multiarch-image-publish@0.1.5
+  uses: gh-workflow/multiarch-image-publish@0.2.2
   with:
     image_ref: ghcr.io/acme/my-image
     tags: |
@@ -55,6 +55,10 @@ To now build your projects images, change this in the copied workflow:
     platform_digests: |
       linux/amd64=sha256:...
       linux/arm64=sha256:...
+    publish_platform_tags: "true"
+    annotations: |
+      org.opencontainers.image.source=https://github.com/acme/my-image
+      org.opencontainers.image.version=${{ github.ref_name }}
 ```
 
 `platform_digests` are the pushed per-architecture image digests produced earlier in your workflow.
@@ -62,6 +66,9 @@ To now build your projects images, change this in the copied workflow:
 For each requested tag, the action publishes:
 
 - the multi-arch tag, for example `v1.2.3`
+
+If `publish_platform_tags` is set to `true`, the action also publishes:
+
 - a tag on each arch image, for example `v1.2.3-amd64` or `v1.2.3-arm64`
 
 The action does not build images for you. It takes already-built per-platform digests, signs and verifies
@@ -69,17 +76,19 @@ those images, then publishes the final multi-arch manifest and tags.
 
 ## Inputs
 
-| Name | Required | Description |
-| --- | --- | --- |
-| `image_ref` | yes | Image reference, for example `ghcr.io/acme/my-image`. |
-| `tags` | yes | Newline-separated tags to publish. |
-| `platform_digests` | yes | Newline-separated `platform=digest` entries. |
-| `certificate_oidc_issuer` | no | Expected issuer for cosign verification. |
+| Name                      | Required | Description                                                   |
+|---------------------------|----------|---------------------------------------------------------------|
+| `image_ref`               | yes      | Image reference, for example `ghcr.io/acme/my-image`.         |
+| `tags`                    | yes      | Newline-separated tags to publish.                            |
+| `platform_digests`        | yes      | Newline-separated `platform=digest` entries.                  |
+| `publish_platform_tags`   | no       | Publish per-platform tags like `tag-amd64`. Default: `false`. |
+| `annotations`             | no       | Newline-separated `key=value` manifest annotations.           |
+| `certificate_oidc_issuer` | no       | Expected issuer for cosign verification.                      |
 
 ## Outputs
 
-| Name | Description |
-| --- | --- |
+| Name              | Description                           |
+|-------------------|---------------------------------------|
 | `manifest_digest` | Published multi-arch manifest digest. |
 
 ## Requirements

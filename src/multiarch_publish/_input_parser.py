@@ -44,9 +44,54 @@ def parse_platform_digests(raw_value: str) -> list[PlatformDigest]:
                 f"invalid platform_digests entry '{entry}': platform and digest must both be non-empty"
             )
 
-        parsed.append(PlatformDigest(platform=Platform.parse(platform_text), digest=digest))
+        parsed.append(
+            PlatformDigest(platform=Platform.parse(platform_text), digest=digest)
+        )
 
     return parsed
+
+
+def parse_annotations(raw_value: str) -> dict[str, str]:
+    """Parse optional newline-separated key=value annotation entries."""
+    if raw_value == "":
+        return {}
+
+    entries = _parse_required_multiline(raw_value, "annotations")
+    annotations: dict[str, str] = {}
+
+    for entry in entries:
+        if "=" not in entry:
+            raise InputError(
+                f"invalid annotations entry '{entry}': expected 'key=value'"
+            )
+
+        key, value = entry.split("=", 1)
+        if key == "":
+            raise InputError(
+                f"invalid annotations entry '{entry}': key must be non-empty"
+            )
+        if key in annotations:
+            raise InputError(
+                f"invalid annotations entry '{entry}': duplicate key '{key}'"
+            )
+        annotations[key] = value
+
+    return annotations
+
+
+def _parse_bool(raw_value: str, field_name: str) -> bool:
+    """Parse a required boolean input."""
+    normalized_value = raw_value.strip().lower()
+    if normalized_value == "true":
+        return True
+    if normalized_value == "false":
+        return False
+    raise InputError(f"{field_name} must be 'true' or 'false'")
+
+
+def parse_publish_platform_tags(raw_value: str) -> bool:
+    """Parse whether per-platform tags should be published."""
+    return _parse_bool(raw_value, "publish_platform_tags")
 
 
 def caller_certificate_identity_regexp(repository: str) -> str:

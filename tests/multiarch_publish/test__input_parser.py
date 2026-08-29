@@ -3,7 +3,9 @@ import unittest
 from multiarch_publish._errors import InputError
 from multiarch_publish._input_parser import (
     caller_certificate_identity_regexp,
+    parse_annotations,
     parse_platform_digests,
+    parse_publish_platform_tags,
     parse_tags,
 )
 from multiarch_publish._models import Platform
@@ -19,13 +21,43 @@ class InputParserTests(unittest.TestCase):
             "linux/amd64=sha256:aaa\nlinux/arm/v7=sha256:bbb"
         )
 
-        self.assertEqual(entries[0].platform, Platform(os="linux", architecture="amd64"))
+        self.assertEqual(
+            entries[0].platform, Platform(os="linux", architecture="amd64")
+        )
         self.assertEqual(entries[0].digest, "sha256:aaa")
         self.assertEqual(
             entries[1].platform,
             Platform(os="linux", architecture="arm", variant="v7"),
         )
         self.assertEqual(entries[1].digest, "sha256:bbb")
+
+    def test_parse_annotations_returns_key_value_pairs(self) -> None:
+        annotations = parse_annotations(
+            "org.opencontainers.image.source=https://github.com/acme/test\nx.test.key=value"
+        )
+
+        self.assertEqual(
+            annotations,
+            {
+                "org.opencontainers.image.source": "https://github.com/acme/test",
+                "x.test.key": "value",
+            },
+        )
+
+    def test_parse_annotations_rejects_duplicate_keys(self) -> None:
+        with self.assertRaisesRegex(InputError, "duplicate key 'x.test.key'"):
+            parse_annotations("x.test.key=value\nx.test.key=other")
+
+    def test_parse_publish_platform_tags_returns_bool(self) -> None:
+        self.assertTrue(parse_publish_platform_tags("true"))
+        self.assertFalse(parse_publish_platform_tags(" FALSE "))
+
+    def test_parse_publish_platform_tags_rejects_invalid_value(self) -> None:
+        with self.assertRaisesRegex(
+            InputError,
+            "publish_platform_tags must be 'true' or 'false'",
+        ):
+            parse_publish_platform_tags("yes")
 
     def test_caller_certificate_identity_regexp_escapes_repo(self) -> None:
         pattern = caller_certificate_identity_regexp("org/repo.name")

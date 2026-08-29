@@ -4,17 +4,31 @@ name: Test Suite
   workflow_call:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test-suite:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ensure workflow actions use immutable refs
+        uses: joshjohanning/ensure-immutable-actions@9f5dad6bb6148bd29ff0d874de6a8cc70af08fa9  # v2.6.2
+        with:
+          include-first-party: 'true'
+          write-job-summary: 'on-failure-only'
+          exclude-workflows: >-
+            example.yml,
+            example-main.yml,
+            example-dockerhub.yml,
+            example-dockerhub-main.yml
 
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.11"
 
@@ -29,40 +43,18 @@ jobs:
 
       - name: Check `example-main.yml` only differs by action ref
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          example_main = Path(".github/workflows/example-main.yml").read_text(encoding="utf-8")
-          normalized = example_main.replace(
-              "name: Example Publish Main",
-              "name: Example Publish",
-          ).replace(
-              "gh-workflow/multiarch-image-publish@main",
-              "gh-workflow/multiarch-image-publish@0.1.5",
-          )
-          Path("/tmp/example-main.normalized.yml").write_text(normalized, encoding="utf-8")
-          PY
+          sed \
+            -e 's#name: Example Publish Main#name: Example Publish#' \
+            -e 's#gh-workflow/multiarch-image-publish@main#gh-workflow/multiarch-image-publish@0.2.2#' \
+            .github/workflows/example-main.yml > /tmp/example-main.normalized.yml
           diff -u .github/workflows/example.yml /tmp/example-main.normalized.yml
 
       - name: Check `example-dockerhub-main.yml` only differs by action ref
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          example_main = Path(".github/workflows/example-dockerhub-main.yml").read_text(
-              encoding="utf-8"
-          )
-          normalized = example_main.replace(
-              "name: Example Publish Docker Hub Main",
-              "name: Example Publish Docker Hub",
-          ).replace(
-              "gh-workflow/multiarch-image-publish@main",
-              "gh-workflow/multiarch-image-publish@0.1.5",
-          )
-          Path("/tmp/example-dockerhub-main.normalized.yml").write_text(
-              normalized, encoding="utf-8"
-          )
-          PY
+          sed \
+            -e 's#name: Example Publish Docker Hub Main#name: Example Publish Docker Hub#' \
+            -e 's#gh-workflow/multiarch-image-publish@main#gh-workflow/multiarch-image-publish@0.2.2#' \
+            .github/workflows/example-dockerhub-main.yml > /tmp/example-dockerhub-main.normalized.yml
           diff -u .github/workflows/example-dockerhub.yml /tmp/example-dockerhub-main.normalized.yml
 
       - name: Run tests

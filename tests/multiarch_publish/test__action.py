@@ -16,6 +16,7 @@ class ActionTests(unittest.TestCase):
                 "INPUT_IMAGE_REF": "ghcr.io/acme/test",
                 "INPUT_TAGS": "latest",
                 "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:index",
+                "INPUT_PUBLISH_PLATFORM_TAGS": "false",
                 "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
                 "GITHUB_REPOSITORY": "acme/test",
                 "GITHUB_OUTPUT": str(output_file),
@@ -52,29 +53,39 @@ class ActionTests(unittest.TestCase):
             )
 
     def test_main_returns_zero_on_success(self) -> None:
-        with patch("multiarch_publish._action._run_action", return_value="sha256:manifest"):
+        with patch(
+            "multiarch_publish._action._run_action", return_value="sha256:manifest"
+        ):
             self.assertEqual(main(), 0)
 
-    def test_run_action_publishes_platform_tags_after_manifest_verification(self) -> None:
+    def test_run_action_publishes_platform_tags_after_manifest_verification(
+        self,
+    ) -> None:
         call_order: list[str] = []
+
+        def publish_manifest_by_digest(*_: object, **__: object) -> str:
+            call_order.append("manifest")
+            return "sha256:manifest"
+
         output_file = Path(tempfile.gettempdir()) / "github-output-order.txt"
         env = {
             "INPUT_IMAGE_REF": "ghcr.io/acme/test",
             "INPUT_TAGS": "latest",
             "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:amd64,linux/arm64=sha256:arm64",
+            "INPUT_PUBLISH_PLATFORM_TAGS": "true",
             "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
             "GITHUB_REPOSITORY": "acme/test",
             "GITHUB_OUTPUT": str(output_file),
         }
 
-        entries = [
+        platform_digests = [
             PlatformDigest(Platform(os="linux", architecture="amd64"), "sha256:amd64"),
             PlatformDigest(Platform(os="linux", architecture="arm64"), "sha256:arm64"),
         ]
 
         with patch.dict("os.environ", env, clear=False), patch(
             "multiarch_publish._action.parse_platform_digests",
-            return_value=entries,
+            return_value=platform_digests,
         ), patch(
             "multiarch_publish._action.resolve_platform_verification_digests",
             side_effect=[
@@ -92,7 +103,7 @@ class ActionTests(unittest.TestCase):
             side_effect=lambda **_: call_order.append("platform"),
         ), patch(
             "multiarch_publish._action.publish_manifest_by_digest",
-            side_effect=lambda *_: call_order.append("manifest") or "sha256:manifest",
+            side_effect=publish_manifest_by_digest,
         ), patch(
             "multiarch_publish._action.sign_and_verify_manifest",
             side_effect=lambda **_: call_order.append("verify-manifest"),
@@ -118,24 +129,29 @@ class ActionTests(unittest.TestCase):
             ],
         )
 
-    def test_run_action_builds_final_manifest_from_resolved_platform_digests(self) -> None:
+    def test_run_action_builds_final_manifest_from_original_index_digests(self) -> None:
         output_file = Path(tempfile.gettempdir()) / "github-output-manifest-inputs.txt"
         env = {
             "INPUT_IMAGE_REF": "ghcr.io/acme/test",
             "INPUT_TAGS": "latest",
             "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:index-amd64\nlinux/arm64=sha256:index-arm64",
+            "INPUT_PUBLISH_PLATFORM_TAGS": "false",
             "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
             "GITHUB_REPOSITORY": "acme/test",
             "GITHUB_OUTPUT": str(output_file),
         }
-        entries = [
-            PlatformDigest(Platform(os="linux", architecture="amd64"), "sha256:index-amd64"),
-            PlatformDigest(Platform(os="linux", architecture="arm64"), "sha256:index-arm64"),
+        platform_digests = [
+            PlatformDigest(
+                Platform(os="linux", architecture="amd64"), "sha256:index-amd64"
+            ),
+            PlatformDigest(
+                Platform(os="linux", architecture="arm64"), "sha256:index-arm64"
+            ),
         ]
 
         with patch.dict("os.environ", env, clear=False), patch(
             "multiarch_publish._action.parse_platform_digests",
-            return_value=entries,
+            return_value=platform_digests,
         ), patch(
             "multiarch_publish._action.resolve_platform_verification_digests",
             side_effect=[
@@ -171,9 +187,169 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(
             manifest_entries,
             [
-                PlatformDigest(Platform(os="linux", architecture="amd64"), "sha256:manifest-amd64"),
-                PlatformDigest(Platform(os="linux", architecture="arm64"), "sha256:manifest-arm64"),
+                PlatformDigest(
+                    Platform(os="linux", architecture="amd64"), "sha256:index-amd64"
+                ),
+                PlatformDigest(
+                    Platform(os="linux", architecture="arm64"), "sha256:index-arm64"
+                ),
             ],
+        )
+        self.assertEqual(publish_manifest_mock.call_args.kwargs["annotations"], {})
+
+    def test_run_action_passes_annotations_to_publish_manifest(self) -> None:
+        output_file = Path(tempfile.gettempdir()) / "github-output-annotations.txt"
+        env = {
+            "INPUT_IMAGE_REF": "ghcr.io/acme/test",
+            "INPUT_TAGS": "latest",
+            "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:index-amd64",
+            "INPUT_ANNOTATIONS": (
+                "org.opencontainers.image.source=https://github.com/acme/test\n"
+                "org.opencontainers.image.version=v1.2.3"
+            ),
+            "INPUT_PUBLISH_PLATFORM_TAGS": "false",
+            "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
+            "GITHUB_REPOSITORY": "acme/test",
+            "GITHUB_OUTPUT": str(output_file),
+        }
+        platform_digests = [
+            PlatformDigest(
+                Platform(os="linux", architecture="amd64"), "sha256:index-amd64"
+            ),
+        ]
+
+        with patch.dict("os.environ", env, clear=False), patch(
+            "multiarch_publish._action.parse_platform_digests",
+            return_value=platform_digests,
+        ), patch(
+            "multiarch_publish._action.resolve_platform_verification_digests",
+            return_value=_PlatformVerificationDigests(
+                platform_digest="sha256:manifest-amd64",
+                attestation_digest="sha256:attestation-amd64",
+            ),
+        ), patch(
+            "multiarch_publish._action.sign_and_verify_platform_image",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_manifest_by_digest",
+            return_value="sha256:manifest",
+        ) as publish_manifest_mock, patch(
+            "multiarch_publish._action.sign_and_verify_manifest",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_platform_tags",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_final_tags",
+            return_value=None,
+        ):
+            _run_action()
+
+        self.assertEqual(
+            publish_manifest_mock.call_args.kwargs["annotations"],
+            {
+                "org.opencontainers.image.source": "https://github.com/acme/test",
+                "org.opencontainers.image.version": "v1.2.3",
+            },
+        )
+
+    def test_run_action_skips_platform_tags_by_default(self) -> None:
+        output_file = Path(tempfile.gettempdir()) / "github-output-no-platform-tags.txt"
+        env = {
+            "INPUT_IMAGE_REF": "ghcr.io/acme/test",
+            "INPUT_TAGS": "latest",
+            "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:index-amd64",
+            "INPUT_PUBLISH_PLATFORM_TAGS": "false",
+            "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
+            "GITHUB_REPOSITORY": "acme/test",
+            "GITHUB_OUTPUT": str(output_file),
+        }
+        platform_digests = [
+            PlatformDigest(
+                Platform(os="linux", architecture="amd64"), "sha256:index-amd64"
+            ),
+        ]
+
+        with patch.dict("os.environ", env, clear=False), patch(
+            "multiarch_publish._action.parse_platform_digests",
+            return_value=platform_digests,
+        ), patch(
+            "multiarch_publish._action.resolve_platform_verification_digests",
+            return_value=_PlatformVerificationDigests(
+                platform_digest="sha256:manifest-amd64",
+                attestation_digest="sha256:attestation-amd64",
+            ),
+        ), patch(
+            "multiarch_publish._action.sign_and_verify_platform_image",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_manifest_by_digest",
+            return_value="sha256:manifest",
+        ), patch(
+            "multiarch_publish._action.sign_and_verify_manifest",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_platform_tags",
+            return_value=None,
+        ) as publish_platform_tags_mock, patch(
+            "multiarch_publish._action.publish_final_tags",
+            return_value=None,
+        ):
+            _run_action()
+
+        publish_platform_tags_mock.assert_not_called()
+
+    def test_run_action_publishes_platform_tags_when_enabled(self) -> None:
+        output_file = (
+            Path(tempfile.gettempdir()) / "github-output-platform-tags-enabled.txt"
+        )
+        env = {
+            "INPUT_IMAGE_REF": "ghcr.io/acme/test",
+            "INPUT_TAGS": "latest",
+            "INPUT_PLATFORM_DIGESTS": "linux/amd64=sha256:index-amd64",
+            "INPUT_PUBLISH_PLATFORM_TAGS": "true",
+            "INPUT_CERTIFICATE_OIDC_ISSUER": "https://token.actions.githubusercontent.com",
+            "GITHUB_REPOSITORY": "acme/test",
+            "GITHUB_OUTPUT": str(output_file),
+        }
+        platform_digests = [
+            PlatformDigest(
+                Platform(os="linux", architecture="amd64"), "sha256:index-amd64"
+            ),
+        ]
+
+        with patch.dict("os.environ", env, clear=False), patch(
+            "multiarch_publish._action.parse_platform_digests",
+            return_value=platform_digests,
+        ), patch(
+            "multiarch_publish._action.resolve_platform_verification_digests",
+            return_value=_PlatformVerificationDigests(
+                platform_digest="sha256:manifest-amd64",
+                attestation_digest="sha256:attestation-amd64",
+            ),
+        ), patch(
+            "multiarch_publish._action.sign_and_verify_platform_image",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_manifest_by_digest",
+            return_value="sha256:manifest",
+        ), patch(
+            "multiarch_publish._action.sign_and_verify_manifest",
+            return_value=None,
+        ), patch(
+            "multiarch_publish._action.publish_platform_tags",
+            return_value=None,
+        ) as publish_platform_tags_mock, patch(
+            "multiarch_publish._action.publish_final_tags",
+            return_value=None,
+        ):
+            _run_action()
+
+        publish_platform_tags_mock.assert_called_once_with(
+            image_ref="ghcr.io/acme/test",
+            index_digest="sha256:index-amd64",
+            tag_suffix="amd64",
+            tags=["latest"],
         )
 
 

@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-07
+
+### Fixed
+
+- Declared a patched `pygments` development dependency floor to avoid known vulnerabilities during
+  local setup and CI runs.
+- Fixed many small linting issues.
+
+## [0.2.1] - 2026-05-15
+
+### Internal
+
+- Bumped `joshjohanning/ensure-immutable-actions` from `v2.5.3` to `v2.5.4`.
+
+## [0.2.0] - 2026-05-14
+
+### Changed
+
+- Per-platform tag publishing is now optional via the `publish_platform_tags` input.
+  It defaults to `false`, so the action only publishes the final multi-arch tags unless
+  callers opt in.
+- Updated the README and example workflows to document the new input and show how to
+  opt in when per-platform tags such as `v1.2.3-amd64` are desired.
+
+### Internal
+
+- Bumped `sigstore/cosign-installer` from `v4.1.1` to `v4.1.2`.
+- Made the test image layer content guaranteed unique to keep end-to-end publish tests
+  from reusing indistinguishable image contents.
+
+## [0.1.11] - 2026-05-10
+
+### Internal
+
+- Bumped development dependencies for pyright, pymarkdownlnt, pytest, pytest-cov, and ruff.
+- Replaced inline Python in the test-suite workflow example drift checks with shell normalization.
+
+## [0.1.10] - 2026-04-21
+
+### Changed
+
+- Hardened CI by adding a test-suite check that rejects mutable GitHub Action references in workflows.
+
+## [0.1.9] - 2026-04-21
+
+### Changed
+
+- Hardened CI by adding a test-suite check that rejects mutable GitHub Action references in workflows.
+
+## [0.1.8] - 2026-04-20
+
+### Changed
+
+- Hardened CI by adding a test-suite check that rejects mutable GitHub Action references in workflows.
+
+### Internal
+
+- Bumped `docker/build-push-action` from `v7.0.0` to `v7.1.0`.
+- Bumped `softprops/action-gh-release` from `v2.6.1` to `v3.0.0`.
+
+## [0.1.7] - 2026-04-09
+
+### Fixed
+
+- Build the final multi-arch manifest from the original per-arch index digests so SBOM and
+  provenance attestations are kept.
+
+## [0.1.6] - 2026-04-08
+
+### Added
+
+- Added optional `annotations` input so callers can attach OCI annotations to the published
+  multi-arch manifest.
+
 ## [0.1.5] - 2026-03-27
 
 ### Changed

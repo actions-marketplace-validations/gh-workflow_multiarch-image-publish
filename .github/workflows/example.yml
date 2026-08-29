@@ -13,8 +13,6 @@ name: Example Publish
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 env:
   # Publishes to GHCR in the current repository owner/project name.
@@ -25,6 +23,10 @@ jobs:
   build:
     name: Build image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       matrix:
         include:
@@ -39,13 +41,15 @@ jobs:
       digest_arm64: ${{ steps.out-arm64.outputs.digest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -53,7 +57,7 @@ jobs:
 
       - name: Build image
         id: build
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294  # v7.0.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: .
           # Replace this with `Dockerfile` when you want to build your own image.
@@ -65,40 +69,57 @@ jobs:
           # Temporary image tag for build/test; final tags are published later.
           tags: ${{ env.IMAGE_REF }}:${{ github.run_id }}-${{ matrix.arch }}-test
 
+      - name: Remove temporary tag on image (optional)
+        uses: ghcr-manager/ghcr-untag-action@952822b03f7c536658dd68fb17f802f52451276e  # v1.0.8
+        with:
+          token: ${{ github.token }}
+          owner: ${{ github.repository_owner }}
+          package: ${{ github.event.repository.name }}-demo
+          tags: ${{ github.run_id }}-${{ matrix.arch }}-test
+
       - name: Test image
         # Example smoke test: run the image and assert simple output.
         # Replace this with a real test for your own container.
+        env:
+          TEST_IMAGE: ${{ env.IMAGE_REF }}@${{ steps.build.outputs.digest }}
         run: |
           docker run --rm \
             --entrypoint /bin/sh \
-            "${{ env.IMAGE_REF }}@${{ steps.build.outputs.digest }}" \
+            "${TEST_IMAGE}" \
             -ec 'echo hello-world' \
             | grep -q '^hello-world$'
 
       - name: Export digest (amd64)
         id: out-amd64
         if: matrix.arch == 'amd64'
-        run: echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "digest=${BUILD_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Export digest (arm64)
         id: out-arm64
         if: matrix.arch == 'arm64'
-        run: echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "digest=${BUILD_DIGEST}" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish multi-arch image
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish multi-arch image
-        uses: gh-workflow/multiarch-image-publish@0.1.5
+        uses: gh-workflow/multiarch-image-publish@0.2.2  # zizmor: ignore[unpinned-uses]
         with:
           image_ref: ${{ env.IMAGE_REF }}
           # Image tag list:
@@ -113,8 +134,15 @@ jobs:
           platform_digests: |
             linux/amd64=${{ needs.build.outputs.digest_amd64 }}
             linux/arm64=${{ needs.build.outputs.digest_arm64 }}
+          publish_platform_tags: "true"
+          annotations: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
 
       - name: Print result
+        env:
+          VERSION_IMAGE: ${{ env.IMAGE_REF }}:${{ github.ref_name }}
+          LATEST_IMAGE: ${{ env.IMAGE_REF }}:${{ env.LATEST_TAG }}
         run: |
-          echo "Published ${{ env.IMAGE_REF }}:${{ github.ref_name }}"
-          echo "Published ${{ env.IMAGE_REF }}:${{ env.LATEST_TAG }}"
+          echo "Published ${VERSION_IMAGE}"
+          echo "Published ${LATEST_IMAGE}"
